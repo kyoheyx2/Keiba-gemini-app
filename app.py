@@ -22,7 +22,7 @@ GEMINI_MODEL = "gemini-1.5-pro-latest"
 
 # ===================== Streamlit 基本設定 =====================
 st.set_page_config(page_title="俺の自動競馬指数アプリ（Gemini専用）", layout="wide")
-st.title("🚀 競馬場タブ + 本格独自指数アプリ（Gemini専用）")
+st.title("🚀 本格独自指数アプリ（Gemini.ver）")
 
 selected_date = st.date_input("📅 分析したい日付", value=datetime.today().date())
 kaisai_date = selected_date.strftime("%Y%m%d")
