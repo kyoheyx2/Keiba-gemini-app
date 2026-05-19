@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import json
 import requests
+import os
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -16,14 +17,185 @@ from collections import defaultdict
 import re
 from bs4 import BeautifulSoup
 
-# ===================== Gemini APIキー（固定値） =====================
-GEMINI_API_KEY = "AIzaSyCnlvx_PtjPnE9PAdZJnJFHl5yourt5qRs"
-GEMINI_MODEL = "gemini-1.5-pro-latest"
+# ===================== .envからAPIキーを読み込む =====================
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# ===================== Streamlit 基本設定 =====================
-st.set_page_config(page_title="俺の自動競馬指数アプリ（Gemini専用）", layout="wide")
-st.title("🚀 本格独自指数アプリ（Gemini.ver）")
+ENV_GEMINI_KEY    = os.getenv("GEMINI_API_KEY", "")
+ENV_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ENV_OPENAI_KEY    = os.getenv("OPENAI_API_KEY", "")
 
+# ===================== ページ設定 =====================
+st.set_page_config(
+    page_title="競馬指数アプリ",
+    layout="wide",
+    initial_sidebar_state="collapsed",   # スマホではサイドバーを最初は閉じる
+)
+
+# ===================== スマホ対応CSS =====================
+st.markdown("""
+<style>
+/* ── ベース ── */
+html, body, [class*="css"] {
+    font-size: 16px;
+}
+
+/* ── メインコンテンツの余白を狭く ── */
+.block-container {
+    padding: 1rem 0.75rem 2rem !important;
+    max-width: 100% !important;
+}
+
+/* ── タイトル ── */
+h1 { font-size: 1.4rem !important; line-height: 1.3 !important; }
+h2 { font-size: 1.2rem !important; }
+h3 { font-size: 1.05rem !important; }
+
+/* ── ボタンを大きく・タップしやすく ── */
+div.stButton > button {
+    width: 100% !important;
+    min-height: 3rem !important;
+    font-size: 1rem !important;
+    border-radius: 8px !important;
+    margin-bottom: 0.5rem !important;
+}
+
+/* ── プライマリボタン ── */
+div.stButton > button[kind="primary"] {
+    font-size: 1.1rem !important;
+    min-height: 3.5rem !important;
+}
+
+/* ── selectbox / date_input ── */
+div[data-testid="stSelectbox"],
+div[data-testid="stDateInput"] {
+    width: 100% !important;
+}
+div[data-testid="stSelectbox"] select,
+div[data-testid="stDateInput"] input {
+    font-size: 1rem !important;
+    min-height: 2.8rem !important;
+}
+
+/* ── テキスト入力（APIキー等） ── */
+div[data-testid="stTextInput"] input {
+    font-size: 1rem !important;
+    min-height: 2.8rem !important;
+}
+
+/* ── チェックボックスをタップしやすく ── */
+div[data-testid="stCheckbox"] {
+    padding: 0.4rem 0 !important;
+}
+div[data-testid="stCheckbox"] label {
+    font-size: 1rem !important;
+    min-height: 2.2rem !important;
+    display: flex !important;
+    align-items: center !important;
+}
+div[data-testid="stCheckbox"] input[type="checkbox"] {
+    width: 1.4rem !important;
+    height: 1.4rem !important;
+    margin-right: 0.6rem !important;
+}
+
+/* ── タブをスクロール可能に ── */
+div[data-testid="stTabs"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+button[data-testid="stTab"] {
+    font-size: 0.95rem !important;
+    padding: 0.5rem 0.8rem !important;
+    white-space: nowrap !important;
+}
+
+/* ── dataframe をスクロール対応に ── */
+div[data-testid="stDataFrame"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+div[data-testid="stDataFrame"] table {
+    font-size: 0.85rem !important;
+}
+div[data-testid="stDataFrame"] th,
+div[data-testid="stDataFrame"] td {
+    padding: 0.35rem 0.5rem !important;
+    white-space: nowrap !important;
+}
+
+/* ── progress bar ── */
+div[data-testid="stProgress"] > div {
+    height: 0.6rem !important;
+    border-radius: 4px !important;
+}
+
+/* ── info / success / warning / error ── */
+div[data-testid="stAlert"] {
+    font-size: 0.95rem !important;
+    padding: 0.6rem 0.8rem !important;
+}
+
+/* ── サイドバー内も読みやすく ── */
+section[data-testid="stSidebar"] .block-container {
+    padding: 1rem 0.75rem !important;
+}
+section[data-testid="stSidebar"] label {
+    font-size: 1rem !important;
+}
+
+/* ── スマホ横幅 600px 以下で更に調整 ── */
+@media (max-width: 600px) {
+    h1 { font-size: 1.2rem !important; }
+    div.stButton > button { min-height: 3.2rem !important; font-size: 0.95rem !important; }
+    div[data-testid="stDataFrame"] table { font-size: 0.78rem !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🚀 競馬指数アプリ（マルチAI版）")
+
+# ===================== サイドバー：AIモデル選択 =====================
+with st.sidebar:
+    st.header("🤖 AI分析設定")
+
+    ai_provider = st.selectbox(
+        "使用するAI",
+        ["Gemini (Google)", "Claude (Anthropic)", "GPT-4o (OpenAI)"],
+        key="ai_provider"
+    )
+
+    if ai_provider == "Gemini (Google)":
+        model_name = st.selectbox("モデル", ["gemini-1.5-flash", "gemini-1.5-pro"], key="gemini_model")
+        if ENV_GEMINI_KEY:
+            st.success("✅ .envからAPIキーを読み込み済み")
+            api_key = ENV_GEMINI_KEY
+        else:
+            api_key = st.text_input("Gemini APIキー", type="password", key="gemini_key_manual")
+
+    elif ai_provider == "Claude (Anthropic)":
+        model_name = st.selectbox("モデル", ["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"], key="claude_model")
+        if ENV_ANTHROPIC_KEY:
+            st.success("✅ .envからAPIキーを読み込み済み")
+            api_key = ENV_ANTHROPIC_KEY
+        else:
+            api_key = st.text_input("Anthropic APIキー", type="password", key="anthropic_key_manual")
+
+    else:
+        model_name = st.selectbox("モデル", ["gpt-4o", "gpt-4o-mini"], key="openai_model")
+        if ENV_OPENAI_KEY:
+            st.success("✅ .envからAPIキーを読み込み済み")
+            api_key = ENV_OPENAI_KEY
+        else:
+            api_key = st.text_input("OpenAI APIキー", type="password", key="openai_key_manual")
+
+    st.divider()
+    st.caption("APIキーは .env ファイルで管理されます。")
+
+# ===================== 日付選択（スマホでは全幅） =====================
 selected_date = st.date_input("📅 分析したい日付", value=datetime.today().date())
 kaisai_date = selected_date.strftime("%Y%m%d")
 
@@ -33,6 +205,7 @@ if 'race_links' not in st.session_state:
     st.session_state.race_links = []
 if 'horse_cache' not in st.session_state:
     st.session_state.horse_cache = {}
+
 
 # ===================== 汎用関数 =====================
 def make_unique_columns(cols):
@@ -47,6 +220,7 @@ def make_unique_columns(cols):
             new_cols.append(f"{col}_{seen[col]}")
     return new_cols
 
+
 def find_col(df, keywords):
     for kw in keywords:
         for c in df.columns:
@@ -54,6 +228,8 @@ def find_col(df, keywords):
                 return c
     return None
 
+
+# ===================== スマート待機 =====================
 def wait_for_page(driver, css_selector, timeout=10, fallback_sleep=2):
     try:
         WebDriverWait(driver, timeout).until(
@@ -62,33 +238,66 @@ def wait_for_page(driver, css_selector, timeout=10, fallback_sleep=2):
     except Exception:
         time.sleep(fallback_sleep)
 
+
 def get_soup(driver):
     return BeautifulSoup(driver.page_source, "html.parser")
 
-# ===================== Gemini呼び出し =====================
-def call_gemini(prompt: str) -> str:
+
+# ===================== マルチAI呼び出し =====================
+def call_ai(prompt: str, provider: str, key: str, model: str) -> str:
+    if not key:
+        return "⚠️ APIキーが設定されていません（.envファイルまたはサイドバーで入力してください）"
     try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
-            headers={
-                "Content-Type": "application/json",
-                "X-goog-api-key": "AIzaSyCnlvx_PtjPnE9PAdZJnJFHl5yourt5qRs"
-            },
-            json={
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": prompt}
-                        ]
-                    }
-                ]
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        if provider == "Claude (Anthropic)":
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 1024,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()["content"][0]["text"]
+
+        elif provider == "GPT-4o (OpenAI)":
+            resp = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 1024,
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+
+        else:  # Gemini
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+    except requests.exceptions.HTTPError as e:
+        return f"⚠️ APIエラー ({e.response.status_code}): {e.response.text[:200]}"
     except Exception as e:
-        return f"⚠️ Gemini APIエラー: {str(e)[:200]}"
+        return f"⚠️ 通信エラー: {str(e)[:200]}"
+
 
 def build_analysis_prompt(race_name: str, result_df: pd.DataFrame) -> str:
     rows = []
@@ -99,7 +308,6 @@ def build_analysis_prompt(race_name: str, result_df: pd.DataFrame) -> str:
             f"斤量補正{r['斤量補正']} 成長補正{r['成長補正']}"
         )
     horses_text = "\n".join(rows)
-
     return f"""あなたは競馬の専門アナリストです。
 以下は「{race_name}」の出走馬の各種指数データです。
 
@@ -127,7 +335,8 @@ def build_analysis_prompt(race_name: str, result_df: pd.DataFrame) -> str:
 - データが少ない馬は控えめに評価してください
 """
 
-def parse_ai_response(text: str) -> dict | None:
+
+def parse_ai_response(text: str):
     text = re.sub(r"```json|```", "", text).strip()
     try:
         return json.loads(text)
@@ -139,6 +348,8 @@ def parse_ai_response(text: str) -> dict | None:
             except Exception:
                 pass
     return None
+
+
 # ===================== 過去走取得（キャッシュ付き） =====================
 def get_past_races(driver, horse_id):
     cache = st.session_state.horse_cache
@@ -149,31 +360,42 @@ def get_past_races(driver, horse_id):
     wait_for_page(driver, "table", timeout=8, fallback_sleep=2)
 
     soup = get_soup(driver)
-
-    # 競走成績テーブルを確実に拾う
-    tables = soup.find_all("table", summary=lambda x: x and ("競走成績" in x or "戦績" in x))
-    if not tables:
-        tables = soup.find_all("table", class_=lambda x: x and "race_results" in str(x))
-    if not tables:
-        tables = soup.find_all("table", class_=lambda x: x and "db_h_race_results" in str(x))
-
-    if not tables:
+    table = None
+    for t in soup.find_all("table"):
+        cls = " ".join(t.get("class", []))
+        if "race_table" in cls or "db_h_race_results" in cls:
+            table = t
+            break
+    if table is None:
+        all_tables = soup.find_all("table")
+        if all_tables:
+            table = max(all_tables, key=lambda t: len(t.find_all("tr")))
+    if table is None:
         cache.setdefault(horse_id, {})["past"] = None
         return None
 
     try:
-        df = pd.read_html(io.StringIO(str(tables[0])))[0]
+        df = pd.read_html(io.StringIO(str(table)))[0]
     except Exception:
         cache.setdefault(horse_id, {})["past"] = None
         return None
 
-    df.columns = make_unique_columns([str(c).strip() for c in df.columns])
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ["_".join([str(c) for c in col if str(c) != "nan"]).strip() for col in df.columns]
+    else:
+        df.columns = [str(c).strip() for c in df.columns]
+    df.columns = make_unique_columns(df.columns.tolist())
+
+    order_col = next((c for c in df.columns if "着" in c and "順" in c), None)
+    if order_col:
+        df = df[df[order_col] != order_col].reset_index(drop=True)
+
     result = df.head(5)
     cache.setdefault(horse_id, {})["past"] = result
     return result
 
 
-# ===================== 調教スコア =====================
+# ===================== 調教スコア（キャッシュ付き） =====================
 def calc_training_score(driver, horse_id):
     cache = st.session_state.horse_cache
     if horse_id in cache and "train" in cache[horse_id]:
@@ -185,13 +407,15 @@ def calc_training_score(driver, horse_id):
     soup = get_soup(driver)
     table = soup.find("table")
     score = 0
-
     if table is not None:
         try:
             df = pd.read_html(io.StringIO(str(table)))[0]
-            df.columns = make_unique_columns([str(c).strip() for c in df.columns])
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = ["_".join([str(c) for c in col if str(c) != "nan"]).strip() for col in df.columns]
+            else:
+                df.columns = [str(c).strip() for c in df.columns]
+            df.columns = make_unique_columns(df.columns.tolist())
             df = df.head(3)
-
             time_col = find_col(df, ["タイム", "時計"])
             if time_col:
                 def parse_time(val):
@@ -203,7 +427,6 @@ def calc_training_score(driver, horse_id):
                     if m:
                         return float(m.group(1))
                     return None
-
                 df["_sec"] = df[time_col].apply(parse_time)
                 mean_sec = df["_sec"].mean()
                 if not pd.isna(mean_sec):
@@ -231,7 +454,6 @@ def extract_horse_id(href_or_onclick):
 def get_horse_ids_from_page(driver, soup):
     horse_info = []
     seen_ids = set()
-
     for a in soup.find_all("a", href=True):
         horse_id = extract_horse_id(a["href"])
         if horse_id and horse_id not in seen_ids:
@@ -239,14 +461,25 @@ def get_horse_ids_from_page(driver, soup):
             if name and len(name) >= 2:
                 horse_info.append((name, horse_id))
                 seen_ids.add(horse_id)
-
+    if horse_info:
+        return horse_info
+    try:
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href*='/horse/']"):
+            href = a.get_attribute("href") or ""
+            horse_id = extract_horse_id(href)
+            if horse_id and horse_id not in seen_ids:
+                name = a.text.strip()
+                if name and len(name) >= 2:
+                    horse_info.append((name, horse_id))
+                    seen_ids.add(horse_id)
+    except Exception:
+        pass
     return horse_info
 
 
-# ===================== 指数計算関数 =====================
+# ===================== 指数計算 =====================
 def class_score(val):
-    if not isinstance(val, str):
-        return 0
+    if not isinstance(val, str): return 0
     if "G1" in val: return 10
     if "G2" in val: return 8
     if "G3" in val: return 6
@@ -263,11 +496,9 @@ def calc_speed_index(past_df):
     time_idx_col = find_col(df, ["タイム指数"])
     agari_col    = find_col(df, ["上り", "上がり", "上3F"])
     margin_col   = find_col(df, ["着差"])
-
     df["_ti"]     = pd.to_numeric(df[time_idx_col], errors="coerce") if time_idx_col else 0
-    df["_agari"]  = pd.to_numeric(df[agari_col], errors="coerce")    if agari_col    else 36.5
-    df["_margin"] = pd.to_numeric(df[margin_col], errors="coerce")   if margin_col   else 1.0
-
+    df["_agari"]  = pd.to_numeric(df[agari_col], errors="coerce")    if agari_col else 36.5
+    df["_margin"] = pd.to_numeric(df[margin_col], errors="coerce")   if margin_col else 1.0
     df["speed"] = (
         df["_ti"].fillna(0) * 1.2 +
         (36.5 - df["_agari"].fillna(36.5)) * 2.0 +
@@ -279,16 +510,14 @@ def calc_speed_index(past_df):
 def calc_class_score_from_df(past_df):
     df = past_df.copy()
     race_col = find_col(df, ["レース名", "競走名", "条件", "クラス"])
-    if not race_col:
-        return 0
+    if not race_col: return 0
     return df[race_col].astype(str).apply(class_score).mean()
 
 
 def calc_distance_score(past_df, target_distance):
     df = past_df.copy()
     dist_col = find_col(df, ["距離"])
-    if not dist_col:
-        return 0
+    if not dist_col: return 0
     df["_dist"] = df[dist_col].astype(str).str.extract(r'(\d{3,4})').astype(float)
     diff = (df["_dist"] - target_distance).abs().mean()
     return max((3000 - diff) / 100, 0)
@@ -297,12 +526,10 @@ def calc_distance_score(past_df, target_distance):
 def calc_style_score(past_df):
     df = past_df.copy()
     pass_col = find_col(df, ["通過", "コーナー", "通過順"])
-    if not pass_col:
-        return 0
+    if not pass_col: return 0
     df["_pos"] = df[pass_col].astype(str).str.extract(r'(\d+)').astype(float)
     mean_pos = df["_pos"].mean()
-    if pd.isna(mean_pos):
-        return 0
+    if pd.isna(mean_pos): return 0
     return max((10 - mean_pos) * 1.5, 0)
 
 
@@ -318,7 +545,6 @@ if st.button(f"🔍 {selected_date} の全レース一覧を取得"):
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
-
         try:
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
@@ -340,12 +566,13 @@ if st.button(f"🔍 {selected_date} の全レース一覧を取得"):
 
             st.session_state.race_links = race_links
             st.success(f"✅ {len(race_links)}レース取得完了！")
-
         except Exception as e:
             st.error(f"取得エラー: {e}")
+
+
 # ===================== レース選択 UI =====================
 if st.session_state.race_links:
-    st.subheader("🏇 分析したいレースにチェックを入れてください")
+    st.subheader("🏇 レースを選択してください")
 
     grouped = defaultdict(list)
     place_map = {
@@ -353,7 +580,6 @@ if st.session_state.race_links:
         "05": "東京", "06": "中山", "07": "中京", "08": "京都",
         "09": "阪神", "10": "小倉"
     }
-
     for name, url in st.session_state.race_links:
         match = re.search(r'race_id=(\d{4})(\d{2})\d+', url)
         venue = place_map.get(match.group(2) if match else "", "その他")
@@ -365,12 +591,15 @@ if st.session_state.race_links:
     selected_races = []
     for tab, venue in zip(tabs, venues):
         with tab:
-            st.markdown(f"### 🏟️ **{venue}**")
+            st.markdown(f"**🏟️ {venue}**")
             for name, url in grouped[venue]:
                 if st.checkbox(name, key=f"check_{name}"):
                     selected_races.append((name, url))
 
-    # ===================== 指数計算 =====================
+    # 選択中レース数を表示
+    if selected_races:
+        st.info(f"✅ {len(selected_races)}レース選択中")
+
     if st.button("📊 選択したレースの指数を計算する", type="primary"):
         if not selected_races:
             st.warning("レースを選択してください")
@@ -384,28 +613,24 @@ if st.session_state.race_links:
                         wait_for_page(driver, "table", timeout=10, fallback_sleep=3)
                         soup = get_soup(driver)
 
-                        # 出馬表テーブル
                         table = None
                         for cls_kw in ["shutuba_table", "Shutuba_Table", "race_table_01"]:
                             table = soup.find("table", class_=lambda x: x and cls_kw in " ".join(x) if x else False)
-                            if table:
-                                break
+                            if table: break
                         if table is None:
                             all_tables = soup.find_all("table")
                             if all_tables:
                                 table = max(all_tables, key=lambda t: len(t.find_all("tr")))
                         if table is None:
-                            st.error(f"{race_name} で出馬表テーブルが見つかりませんでした")
+                            st.error(f"{race_name}：テーブルが見つかりませんでした")
                             continue
 
-                        # 馬ID取得
                         horse_info = get_horse_ids_from_page(driver, soup)
                         if not horse_info:
-                            st.error(f"{race_name} で馬IDが取得できませんでした")
+                            st.error(f"{race_name}：馬IDが取得できませんでした")
                             continue
-                        st.info(f"  → {len(horse_info)}頭の馬IDを取得しました")
+                        st.info(f"→ {len(horse_info)}頭取得")
 
-                        # 距離取得
                         race_distance = 0
                         for cls_kw in ["RaceData01", "race_data", "mainrace_data"]:
                             tag = soup.find(class_=cls_kw)
@@ -414,26 +639,30 @@ if st.session_state.race_links:
                                 if m:
                                     race_distance = int(m.group(1))
                                     break
+                        if race_distance == 0:
+                            m = re.search(r'(\d{3,4})m', soup.get_text())
+                            if m:
+                                race_distance = int(m.group(1))
 
-                        # 斤量・性齢
                         burden_map, age_map = {}, {}
                         try:
                             df_shutuba = pd.read_html(io.StringIO(str(table)))[0]
-                            df_shutuba.columns = make_unique_columns([str(c).strip() for c in df_shutuba.columns])
+                            if isinstance(df_shutuba.columns, pd.MultiIndex):
+                                df_shutuba.columns = ["_".join([str(c) for c in col if str(c) != "nan"]).strip() for col in df_shutuba.columns]
+                            else:
+                                df_shutuba.columns = [str(c).strip() for c in df_shutuba.columns]
+                            df_shutuba.columns = make_unique_columns(df_shutuba.columns.tolist())
                             burden_col = find_col(df_shutuba, ["斤量"])
                             age_col    = find_col(df_shutuba, ["性齢"])
                             name_col   = find_col(df_shutuba, ["馬名"])
                             if name_col:
                                 for _, row in df_shutuba.iterrows():
                                     hn = str(row[name_col]).strip()
-                                    if burden_col:
-                                        burden_map[hn] = pd.to_numeric(row[burden_col], errors="coerce")
-                                    if age_col:
-                                        age_map[hn] = str(row[age_col])
+                                    if burden_col: burden_map[hn] = pd.to_numeric(row[burden_col], errors="coerce")
+                                    if age_col:    age_map[hn]    = str(row[age_col])
                         except Exception:
                             pass
 
-                        # ===================== 指数計算本体 =====================
                         results = []
                         progress = st.progress(0)
                         status = st.empty()
@@ -468,7 +697,6 @@ if st.session_state.race_links:
                                 burden_adj * 0.03 +
                                 growth_adj * 0.02
                             )
-
                             results.append([
                                 hname, round(total, 2), round(speed, 2), round(cls, 2),
                                 round(dist_score, 2), round(style, 2), round(train, 2),
@@ -487,45 +715,61 @@ if st.session_state.race_links:
                             columns=["馬名","総合指数","スピード","クラス","距離適性","脚質","調教","斤量補正","成長補正"]
                         ).sort_values("総合指数", ascending=False).reset_index(drop=True)
 
-                        st.success(f"🏆 {race_name} の総合指数ランキング")
-                        st.dataframe(result_df, use_container_width=True, height=400)
+                        st.success(f"🏆 {race_name} 指数ランキング")
 
-                        # ===================== Gemini AI分析 =====================
+                        # スマホ向け：重要列のみ先に表示、全列は展開式に
+                        st.markdown("**📊 主要指数（上位項目）**")
+                        st.dataframe(
+                            result_df[["馬名","総合指数","スピード","距離適性"]],
+                            use_container_width=True,
+                            height=350,
+                        )
+                        with st.expander("📋 全指数を表示"):
+                            st.dataframe(result_df, use_container_width=True, height=400)
+
+                        # ===================== AI分析 =====================
                         st.divider()
-                        with st.spinner("🤖 Gemini でAI分析中..."):
-                            prompt   = build_analysis_prompt(race_name, result_df)
-                            ai_text  = call_gemini(prompt)
-                            ai_data  = parse_ai_response(ai_text)
+                        with st.spinner(f"🤖 {ai_provider} でAI分析中..."):
+                            prompt  = build_analysis_prompt(race_name, result_df)
+                            ai_text = call_ai(prompt, ai_provider, api_key, model_name)
+                            ai_data = parse_ai_response(ai_text)
 
                         if ai_data and "horses" in ai_data:
-                            st.subheader("🤖 Gemini AI分析結果")
-
+                            st.subheader(f"🤖 AI分析（{ai_provider}）")
                             if "レース総評" in ai_data:
                                 st.info(f"📝 {ai_data['レース総評']}")
 
                             ai_rows = []
                             for h in ai_data["horses"]:
                                 ai_rows.append({
-                                    "馬名":   h.get("馬名", ""),
-                                    "勝率(%)":  h.get("勝率", 0),
+                                    "馬名":      h.get("馬名", ""),
+                                    "勝率(%)":   h.get("勝率", 0),
                                     "連対率(%)": h.get("連対率", 0),
                                     "複勝率(%)": h.get("複勝率", 0),
                                     "AIコメント": h.get("コメント", ""),
                                 })
-
                             ai_df = pd.DataFrame(ai_rows).sort_values("勝率(%)", ascending=False).reset_index(drop=True)
+
+                            # スマホ向け：確率3列を先に、コメントは展開式に
+                            st.markdown("**📈 勝率・連対率・複勝率**")
                             st.dataframe(
-                                ai_df.style.background_gradient(subset=["勝率(%)","連対率(%)","複勝率(%)"], cmap="YlOrRd"),
+                                ai_df[["馬名","勝率(%)","連対率(%)","複勝率(%)"]].style.background_gradient(
+                                    subset=["勝率(%)","連対率(%)","複勝率(%)"], cmap="YlOrRd"
+                                ),
                                 use_container_width=True,
-                                height=400,
+                                height=350,
                             )
+                            with st.expander("💬 AIコメントを表示"):
+                                for _, row in ai_df.iterrows():
+                                    st.markdown(f"**{row['馬名']}**：{row['AIコメント']}")
                         else:
-                            st.subheader("🤖 Gemini AI分析結果（JSON解析失敗）")
+                            st.subheader(f"🤖 AI分析（{ai_provider}）")
                             st.text(ai_text)
 
                     except Exception as e:
                         import traceback
                         st.error(f"{race_name} 処理エラー: {str(e)[:300]}")
-                        st.code(traceback.format_exc(), language="python")
+                        with st.expander("エラー詳細"):
+                            st.code(traceback.format_exc(), language="python")
 
-st.caption("※ チェック選択 → 下のボタンで計算｜Gemini専用AI分析")
+st.caption("AIモデルはサイドバー（左上 ≡）で切り替えられます")
