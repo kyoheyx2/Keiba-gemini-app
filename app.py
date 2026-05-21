@@ -468,16 +468,31 @@ if st.button(f"🔍 {selected_date} の全レース一覧を取得"):
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         try:
-            import os, shutil
-            # Streamlit Cloud（Linux）ではChromiumのパスが固定
-            chromium_path    = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
-            chromedriver_path = shutil.which("chromedriver")
+            import shutil, subprocess, os
+
+            # Streamlit Cloud上のChromiumパスを確実に特定する
+            chromium_path = (
+                shutil.which("chromium-browser") or
+                shutil.which("chromium") or
+                shutil.which("google-chrome") or
+                shutil.which("google-chrome-stable")
+            )
+            chromedriver_path = (
+                shutil.which("chromedriver") or
+                "/usr/bin/chromedriver"
+            )
+
+            # chromiumが見つかった場合はそのパスをセット
             if chromium_path:
                 options.binary_location = chromium_path
-            if chromedriver_path:
+
+            # ChromeDriverのパスが実在するか確認
+            if os.path.exists(chromedriver_path):
                 service = Service(chromedriver_path)
             else:
+                # ローカルWindows環境ではWebDriverManagerを使用
                 service = Service(ChromeDriverManager().install())
+
             driver  = webdriver.Chrome(service=service, options=options)
             st.session_state.driver      = driver
             st.session_state.horse_cache = {}
