@@ -27,13 +27,13 @@ GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GEMINI_MODEL   = "gemini-2.5-flash"
 
 # ===================== ページ設定 =====================
-st.set_page_config(page_title="競馬指数アプリ", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="競馬指数アプリ", page_icon="🏇", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
 html, body, [class*="css"] { font-size: 16px; }
-.block-container { padding: 1rem 0.75rem 2rem !important; max-width: 100% !important; }
-h1 { font-size: 1.4rem !important; line-height: 1.3 !important; }
+.block-container { padding: 3rem 0.75rem 2rem !important; max-width: 100% !important; }
+h1 { font-size: 1.4rem !important; line-height: 1.3 !important; margin-top: 0.5rem !important; }
 h2 { font-size: 1.2rem !important; }
 h3 { font-size: 1.05rem !important; }
 div.stButton > button {
@@ -58,10 +58,10 @@ div[data-testid="stDataFrame"] th, div[data-testid="stDataFrame"] td { padding: 
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚀 競馬指数アプリ")
+st.title("🏇 競馬指数アプリ")
 
 if not GEMINI_API_KEY:
-    st.error("⚠️ GEMINI_API_KEYが設定されていません。.streamlit/secrets.toml を確認してください。")
+    st.error("⚠️ GEMINI_API_KEY が未設定です。ローカルは .streamlit/secrets.toml、Streamlit Cloud は Settings → Secrets に GEMINI_API_KEY を追加してください。")
 
 selected_date = st.date_input("📅 分析したい日付", value=datetime.today().date())
 kaisai_date = selected_date.strftime("%Y%m%d")
@@ -461,13 +461,23 @@ if st.button(f"🔍 {selected_date} の全レース一覧を取得"):
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
         options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         try:
-            service = Service(ChromeDriverManager().install())
+            import os, shutil
+            # Streamlit Cloud（Linux）ではChromiumのパスが固定
+            chromium_path    = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+            chromedriver_path = shutil.which("chromedriver")
+            if chromium_path:
+                options.binary_location = chromium_path
+            if chromedriver_path:
+                service = Service(chromedriver_path)
+            else:
+                service = Service(ChromeDriverManager().install())
             driver  = webdriver.Chrome(service=service, options=options)
             st.session_state.driver      = driver
             st.session_state.horse_cache = {}
