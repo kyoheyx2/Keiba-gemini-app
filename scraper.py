@@ -30,6 +30,32 @@ def get_driver():
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
+    import platform, shutil
+
+    if platform.system() == "Linux":
+        # Streamlit Cloud: システムの chromium バイナリを指定しつつ
+        # ChromeDriver は webdriver-manager でバージョンを自動合わせする
+        for binary in ["chromium", "chromium-browser", "google-chrome"]:
+            path = shutil.which(binary)
+            if path:
+                opts.binary_location = path
+                break
+        from webdriver_manager.chrome import ChromeDriverManager
+        from webdriver_manager.core.os_manager import ChromeType
+        try:
+            # chromium 用の ChromeDriver を取得（バージョン自動一致）
+            service = Service(
+                ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+            )
+            return webdriver.Chrome(service=service, options=opts)
+        except Exception:
+            # フォールバック：システムの chromedriver を使う
+            driver_path = shutil.which("chromedriver")
+            if driver_path:
+                return webdriver.Chrome(service=Service(driver_path), options=opts)
+
+    # Windows / macOS
+    from webdriver_manager.chrome import ChromeDriverManager
     return webdriver.Chrome(
         service=Service(ChromeDriverManager().install()), options=opts
     )
